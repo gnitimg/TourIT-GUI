@@ -21,6 +21,7 @@
 #include <QUrl>
 #include <QTimer>
 #include <QInputDialog>
+#include <cmath>
 
 class PathCalculator;
 
@@ -49,7 +50,7 @@ private:
     QString generateMapHTML();
     void centerMap(double lng, double lat, const QString &title, const QString &type);
     void executeJavaScript(const QString &script);
-    void processLocationData(const QJsonObject &locationObj, const QString &searchType, const QString &originalLocation);
+    double calculateStraightDistance(double lng1, double lat1, double lng2, double lat2);
 
     // UI 组件
     QWebEngineView *mapView;

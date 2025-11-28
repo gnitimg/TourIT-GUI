@@ -3,9 +3,13 @@
 #include <QDebug>
 #include <QWebEngineSettings>
 #include <QUrl>
+#include <cmath>
 
-// 高德地图API密钥 - 请替换为您自己的密钥
+// 高德地图API密钥
 const QString GAODE_API_KEY = "7e85eb64a850bbd44d757f23ba6d7e8e";
+
+// 地球半径（公里）
+const double EARTH_RADIUS = 6371.0;
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -130,7 +134,6 @@ void MainWindow::onConfirmStartEnd()
         return;
     }
 
-    // 修复：简化逻辑，直接搜索两个位置
     searchLocation(startPoint, "start");
     searchLocation(endPoint, "end");
 
@@ -148,7 +151,7 @@ void MainWindow::onConfirmWaypoint()
         return;
     }
 
-    // 修复：正确检查重复，基于原始输入
+    // 检查是否已经添加过
     bool alreadyExists = false;
     for (const QString &existing : waypoints) {
         if (existing == waypoint) {
@@ -168,7 +171,9 @@ void MainWindow::onConfirmWaypoint()
 void MainWindow::searchLocation(const QString &location, const QString &type)
 {
     // 高德地图地理编码API
-    QString url = QString("https://restapi.amap.com/v3/geocode/geo?key=%1&address=%2&city=").arg(GAODE_API_KEY).arg(QString::fromUtf8(QUrl::toPercentEncoding(location)));
+    QString url = QString("https://restapi.amap.com/v3/geocode/geo?key=%1&address=%2&city=")
+                     .arg(GAODE_API_KEY)
+                     .arg(QString::fromUtf8(QUrl::toPercentEncoding(location)));
 
     QNetworkRequest request;
     request.setUrl(QUrl(url));
@@ -217,10 +222,14 @@ void MainWindow::onGeocodeReply(QNetworkReply *reply)
                 if (searchType == "waypoint") {
                     waypoints.append(location);
                     waypointList->addItem(location);
+                    waypointEdit->clear();
                 }
 
+                QMessageBox::information(this, "成功",
+                    QString("已找到位置: %1").arg(gc["formatted_address"].toString()));
+
                 reply->deleteLater();
-                return;  // <<<<<< 必须在成功时 return
+                return;  // 必须在成功时 return
             }
         }
     }
@@ -235,52 +244,20 @@ void MainWindow::onGeocodeReply(QNetworkReply *reply)
     reply->deleteLater();
 }
 
-
-void MainWindow::processLocationData(const QJsonObject &locationObj, const QString &searchType, const QString &originalLocation)
+double MainWindow::calculateStraightDistance(double lng1, double lat1, double lng2, double lat2)
 {
-    QString formatted_address = locationObj["formatted_address"].toString();
-    QString location_str = locationObj["location"].toString();
+    // 将角度转换为弧度
+    double radLat1 = lat1 * M_PI / 180.0;
+    double radLat2 = lat2 * M_PI / 180.0;
+    double a = radLat1 - radLat2;
+    double b = lng1 * M_PI / 180.0 - lng2 * M_PI / 180.0;
 
-    qDebug() << "处理位置数据:" << formatted_address << "坐标:" << location_str;
+    // 使用Haversine公式计算距离
+    double s = 2 * asin(sqrt(pow(sin(a/2), 2) +
+                   cos(radLat1) * cos(radLat2) * pow(sin(b/2), 2)));
+    s = s * EARTH_RADIUS;
 
-    // 解析经纬度 "经度,纬度"
-    QStringList coords = location_str.split(",");
-    if (coords.size() == 2) {
-        double lng = coords[0].toDouble();
-        double lat = coords[1].toDouble();
-
-        // 存储坐标
-        locationCoordinates[originalLocation] = qMakePair(lng, lat);
-
-        // 移动地图中心到该位置
-        centerMap(lng, lat, formatted_address, searchType);
-
-        // 显示成功消息
-        QString typeText;
-        if (searchType == "start") typeText = "起点";
-        else if (searchType == "end") typeText = "终点";
-        else typeText = "途径点";
-
-        QMessageBox::information(this, "位置确认",
-                                 QString("%1已设置:\n%2").arg(typeText).arg(formatted_address));
-
-        // 如果是途径点，添加到列表
-        if (searchType == "waypoint") {
-            // 使用格式化地址添加到列表，这样更清晰
-            waypoints.append(formatted_address);
-            if (waypointList) {
-                waypointList->addItem(formatted_address);
-            }
-            waypointEdit->clear();
-
-            qDebug() << "添加途径点:" << formatted_address << "当前数量:" << waypoints.size();
-        }
-
-        qDebug() << "找到位置:" << formatted_address << "坐标:" << lng << "," << lat;
-    } else {
-        qDebug() << "坐标格式错误:" << location_str;
-        QMessageBox::warning(this, "错误", "坐标格式错误: " + location_str);
-    }
+    return qAbs(s);  // 返回绝对值，距离不能为负
 }
 
 void MainWindow::centerMap(double lng, double lat, const QString &title, const QString &type)
@@ -290,25 +267,24 @@ void MainWindow::centerMap(double lng, double lat, const QString &title, const Q
     else if (type == "end") color = "green";
     else if (type == "waypoint") color = "orange";
 
-    // 修复：简化JavaScript代码，确保执行
     QString script = QString(
-                         "setTimeout(function() {"
-                         "   try {"
-                         "       if (typeof map !== 'undefined') {"
-                         "           map.setCenter([%1, %2]);"
-                         "           map.setZoom(15);"
-                         "           if (typeof clearMarkers === 'function') {"
-                         "               clearMarkers();"
-                         "           }"
-                         "           if (typeof addMarker === 'function') {"
-                         "               addMarker(%1, %2, '%3', '%4');"
-                         "           }"
-                         "       }"
-                         "   } catch(e) {"
-                         "       console.error('地图操作错误:', e);"
-                         "   }"
-                         "}, 200);"
-                         ).arg(lng).arg(lat).arg(title).arg(color);
+        "setTimeout(function() {"
+        "   try {"
+        "       if (typeof map !== 'undefined') {"
+        "           map.setCenter([%1, %2]);"
+        "           map.setZoom(15);"
+        "           if (typeof clearMarkers === 'function') {"
+        "               clearMarkers();"
+        "           }"
+        "           if (typeof addMarker === 'function') {"
+        "               addMarker(%1, %2, '%3', '%4');"
+        "           }"
+        "       }"
+        "   } catch(e) {"
+        "       console.error('地图操作错误:', e);"
+        "   }"
+        "}, 200);"
+    ).arg(lng).arg(lat).arg(title).arg(color);
 
     executeJavaScript(script);
 }
@@ -316,7 +292,6 @@ void MainWindow::centerMap(double lng, double lat, const QString &title, const Q
 void MainWindow::executeJavaScript(const QString &script)
 {
     if (mapView && mapView->page()) {
-        // 延迟执行，确保地图完全加载
         QTimer::singleShot(100, this, [this, script]() {
             mapView->page()->runJavaScript(script, [](const QVariant &result) {
                 if (!result.isNull()) {
@@ -339,14 +314,11 @@ void MainWindow::onMapLoadFinished(bool ok)
 
 void MainWindow::addWaypointToList(const QString &waypoint)
 {
-    // 使用原始输入名称，而不是格式化地址
-    QString originalWaypoint = waypointEdit->text().trimmed();
-    waypoints.append(originalWaypoint);
+    waypoints.append(waypoint);
     if (waypointList) {
-        waypointList->addItem(originalWaypoint);
+        waypointList->addItem(waypoint);
     }
-
-    qDebug() << "添加途径点:" << originalWaypoint << "当前数量:" << waypoints.size();
+    qDebug() << "添加途径点:" << waypoint << "当前数量:" << waypoints.size();
 }
 
 QString MainWindow::generateMapHTML()
@@ -394,7 +366,6 @@ QString MainWindow::generateMapHTML()
                 let markers = [];
                 let infoWindows = [];
 
-                // 初始化地图
                 function initMap() {
                     try {
                         map = new AMap.Map('container', {
@@ -403,7 +374,6 @@ QString MainWindow::generateMapHTML()
                             viewMode: '2D'
                         });
 
-                        // 添加控件 - 使用正确的控件名称
                         if (AMap && AMap.Scale) {
                             map.addControl(new AMap.Scale());
                         }
@@ -419,7 +389,6 @@ QString MainWindow::generateMapHTML()
                     }
                 }
 
-                // 清除所有标记
                 function clearMarkers() {
                     markers.forEach(marker => {
                         map.remove(marker);
@@ -432,7 +401,6 @@ QString MainWindow::generateMapHTML()
                     infoWindows = [];
                 }
 
-                // 添加标记点
                 function addMarker(lng, lat, title, color) {
                     try {
                         const iconUrl = getIconUrl(color);
@@ -459,7 +427,6 @@ QString MainWindow::generateMapHTML()
                         markers.push(marker);
                         infoWindows.push(infoWindow);
 
-                        // 隐藏加载提示
                         const loadingEl = document.querySelector('.loading');
                         if (loadingEl) {
                             loadingEl.style.display = 'none';
@@ -471,7 +438,6 @@ QString MainWindow::generateMapHTML()
                     }
                 }
 
-                // 获取图标URL
                 function getIconUrl(color) {
                     const baseUrl = 'https://webapi.amap.com/theme/v1.3/markers/n/mark_';
                     const colorMap = {
@@ -483,7 +449,6 @@ QString MainWindow::generateMapHTML()
                     return baseUrl + (colorMap[color] || 'b') + '.png';
                 }
 
-                // 页面加载完成后初始化地图
                 if (typeof AMap !== 'undefined') {
                     initMap();
                 } else {
@@ -532,11 +497,41 @@ void MainWindow::onCalculateShortestPath()
     QStringList allPoints;
     allPoints << startPoint << waypoints << endPoint;
 
+    // 检查所有点都有坐标数据
+    for (const QString &point : allPoints) {
+        if (!locationCoordinates.contains(point)) {
+            QMessageBox::warning(this, "错误", QString("点 %1 没有坐标数据，请重新搜索").arg(point));
+            return;
+        }
+    }
+
+    // 计算距离矩阵
+    int n = allPoints.size();
+    QVector<QVector<double>> distanceMatrix(n, QVector<double>(n, 0.0));
+
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            QPair<double, double> coord1 = locationCoordinates[allPoints[i]];
+            QPair<double, double> coord2 = locationCoordinates[allPoints[j]];
+
+            double distance = calculateStraightDistance(
+                coord1.first, coord1.second,
+                coord2.first, coord2.second
+            );
+
+            distanceMatrix[i][j] = distance;
+            distanceMatrix[j][i] = distance;
+
+            qDebug() << QString("距离 %1 -> %2: %3 公里")
+                        .arg(allPoints[i]).arg(allPoints[j]).arg(distance, 0, 'f', 2);
+        }
+    }
+
     qDebug() << "开始计算路径，点数量:" << allPoints.size();
 
     // 开始计算
     if (pathCalculator) {
-        pathCalculator->calculateShortestPath(allPoints);
+        pathCalculator->calculateShortestPathWithMatrix(allPoints, distanceMatrix);
     }
 }
 

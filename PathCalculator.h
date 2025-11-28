@@ -14,6 +14,7 @@ class PathCalculator : public QObject
 public:
     explicit PathCalculator(QObject *parent = nullptr);
     void calculateShortestPath(const QStringList &points);
+    void calculateShortestPathWithMatrix(const QStringList &points, const QVector<QVector<double>> &distanceMatrix);
 
 signals:
     void pathCalculated(const QString &path);
@@ -22,6 +23,7 @@ signals:
 private:
     double getDistance(const QString &point1, const QString &point2);
     QVector<int> dijkstra(const QVector<QVector<double>> &graph, int start, int end);
+    QVector<int> nearestNeighborTSP(const QVector<QVector<double>> &graph, int start, int end);
 
     QMap<QString, QPair<double, double>> locationCache;
 };
