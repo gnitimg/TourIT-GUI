@@ -21,7 +21,6 @@
 #include <QUrl>
 #include <QTimer>
 #include <QInputDialog>
-#include <cmath>
 
 class PathCalculator;
 

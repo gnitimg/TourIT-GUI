@@ -6,7 +6,8 @@
 #include <cmath>
 
 // 高德地图API密钥
-const QString GAODE_API_KEY = "7e85eb64a850bbd44d757f23ba6d7e8e";
+const QString MAP_API_KEY = "4f8c908bd3a5f79a46ee5150f6a4083b";
+const QString DIS_API_KEY = "d8def074f908341a84de7b9498492a42";
 
 // 地球半径（公里）
 const double EARTH_RADIUS = 6371.0;
@@ -172,7 +173,7 @@ void MainWindow::searchLocation(const QString &location, const QString &type)
 {
     // 高德地图地理编码API
     QString url = QString("https://restapi.amap.com/v3/geocode/geo?key=%1&address=%2&city=")
-                     .arg(GAODE_API_KEY)
+                     .arg(DIS_API_KEY)
                      .arg(QString::fromUtf8(QUrl::toPercentEncoding(location)));
 
     QNetworkRequest request;
@@ -457,7 +458,7 @@ QString MainWindow::generateMapHTML()
             </script>
         </body>
         </html>
-    )").arg(GAODE_API_KEY);
+    )").arg(MAP_API_KEY);
 
     return html;
 }
