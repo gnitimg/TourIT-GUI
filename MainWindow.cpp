@@ -21,6 +21,7 @@ MainWindow::MainWindow(QWidget *parent)
     , confirmStartEndBtn(nullptr)
     , confirmWaypointBtn(nullptr)
     , finishBtn(nullptr)
+    , importFileBtn(nullptr)  // 初始化新增按钮
     , waypointList(nullptr)
     , networkManager(new QNetworkAccessManager(this))
     , pathCalculator(new PathCalculator(this))
@@ -61,7 +62,7 @@ void MainWindow::setupUI()
     // 左侧控制面板
     QWidget *controlPanel = new QWidget(centralWidget);
     QVBoxLayout *controlLayout = new QVBoxLayout(controlPanel);
-    controlPanel->setMaximumWidth(350);
+    controlPanel->setMaximumWidth(400);  // 稍微加宽以容纳新按钮
 
     // 起点终点输入
     QLabel *startLabel = new QLabel("起点:", controlPanel);
@@ -80,6 +81,10 @@ void MainWindow::setupUI()
     waypointEdit->setPlaceholderText("例如：天津");
     confirmWaypointBtn = new QPushButton("确认途径点", controlPanel);
 
+    // 文件导入按钮
+    importFileBtn = new QPushButton("从文件导入途径点", controlPanel);
+    importFileBtn->setToolTip("导入txt文件，每行一个地址");
+
     // 完成按钮
     finishBtn = new QPushButton("计算最短路径", controlPanel);
     finishBtn->setEnabled(false);
@@ -97,6 +102,7 @@ void MainWindow::setupUI()
     controlLayout->addWidget(waypointLabel);
     controlLayout->addWidget(waypointEdit);
     controlLayout->addWidget(confirmWaypointBtn);
+    controlLayout->addWidget(importFileBtn);  // 添加导入按钮
     controlLayout->addSpacing(20);
     controlLayout->addWidget(listLabel);
     controlLayout->addWidget(waypointList);
@@ -121,10 +127,109 @@ void MainWindow::setupUI()
             this, &MainWindow::onConfirmStartEnd);
     connect(confirmWaypointBtn, &QPushButton::clicked,
             this, &MainWindow::onConfirmWaypoint);
+    connect(importFileBtn, &QPushButton::clicked,  // 连接导入按钮
+            this, &MainWindow::onImportFromFile);
     connect(finishBtn, &QPushButton::clicked,
             this, &MainWindow::onFinishInput);
 }
 
+// 新增：导入文件按钮点击事件
+void MainWindow::onImportFromFile()
+{
+    QString fileName = QFileDialog::getOpenFileName(
+        this,
+        "选择地址文件",
+        "",
+        "文本文件 (*.txt);;所有文件 (*.*)"
+        );
+
+    if (!fileName.isEmpty()) {
+        importAddressesFromFile(fileName);
+    }
+}
+
+void MainWindow::importAddressesFromFile(const QString &fileName)
+{
+    QFile file(fileName);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "文件错误", "无法打开文件: " + fileName);
+        return;
+    }
+
+    QTextStream in(&file);
+
+    QStringList newAddresses;
+    int importedCount = 0;
+    int duplicateCount = 0;
+
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (!line.isEmpty()) {
+            // 检查是否已存在
+            if (waypoints.contains(line)) {
+                duplicateCount++;
+                continue;
+            }
+
+            newAddresses.append(line);
+            importedCount++;
+
+            // 搜索位置并添加到列表
+            searchLocation(line, "waypoint");
+        }
+    }
+
+    file.close();
+
+    // 显示导入结果
+    QString message = QString("成功导入 %1 个新地址").arg(importedCount);
+    if (duplicateCount > 0) {
+        message += QString("\n跳过 %1 个重复地址").arg(duplicateCount);
+    }
+
+    QMessageBox::information(this, "导入完成", message);
+
+    // 更新途径点列表显示
+    for (const QString &address : newAddresses) {
+        addWaypointToList(address);
+    }
+}
+
+// 修改：添加途径点到列表的方法
+void MainWindow::addWaypointToList(const QString &waypoint)
+{
+    // 检查是否已经存在
+    if (waypoints.contains(waypoint)) {
+        return;
+    }
+
+    waypoints.append(waypoint);
+    if (waypointList) {
+        waypointList->addItem(waypoint);
+    }
+    qDebug() << "添加途径点:" << waypoint << "当前数量:" << waypoints.size();
+}
+
+// 修改：确认途径点方法，避免重复
+void MainWindow::onConfirmWaypoint()
+{
+    QString waypoint = waypointEdit->text().trimmed();
+    if (waypoint.isEmpty()) {
+        QMessageBox::warning(this, "输入错误", "请输入途径点");
+        return;
+    }
+
+    // 检查是否已经添加过
+    if (waypoints.contains(waypoint)) {
+        QMessageBox::warning(this, "重复输入", "该途径点已经添加过了");
+        return;
+    }
+
+    searchLocation(waypoint, "waypoint");
+    waypointEdit->clear();  // 清空输入框
+}
+
+// 其余现有方法保持不变...
 void MainWindow::onConfirmStartEnd()
 {
     startPoint = startEdit->text().trimmed();
@@ -144,37 +249,12 @@ void MainWindow::onConfirmStartEnd()
                              QString("起点: %1\n终点: %2").arg(startPoint).arg(endPoint));
 }
 
-void MainWindow::onConfirmWaypoint()
-{
-    QString waypoint = waypointEdit->text().trimmed();
-    if (waypoint.isEmpty()) {
-        QMessageBox::warning(this, "输入错误", "请输入途径点");
-        return;
-    }
-
-    // 检查是否已经添加过
-    bool alreadyExists = false;
-    for (const QString &existing : waypoints) {
-        if (existing == waypoint) {
-            alreadyExists = true;
-            break;
-        }
-    }
-
-    if (alreadyExists) {
-        QMessageBox::warning(this, "重复输入", "该途径点已经添加过了");
-        return;
-    }
-
-    searchLocation(waypoint, "waypoint");
-}
-
 void MainWindow::searchLocation(const QString &location, const QString &type)
 {
     // 高德地图地理编码API
     QString url = QString("https://restapi.amap.com/v3/geocode/geo?key=%1&address=%2&city=")
-                     .arg(DIS_API_KEY)
-                     .arg(QString::fromUtf8(QUrl::toPercentEncoding(location)));
+                      .arg(DIS_API_KEY)
+                      .arg(QString::fromUtf8(QUrl::toPercentEncoding(location)));
 
     QNetworkRequest request;
     request.setUrl(QUrl(url));
@@ -221,13 +301,11 @@ void MainWindow::onGeocodeReply(QNetworkReply *reply)
 
                 // 处理途径点
                 if (searchType == "waypoint") {
-                    waypoints.append(location);
-                    waypointList->addItem(location);
-                    waypointEdit->clear();
+                    addWaypointToList(location);  // 使用统一的方法添加
                 }
 
                 QMessageBox::information(this, "成功",
-                    QString("已找到位置: %1").arg(gc["formatted_address"].toString()));
+                                         QString("已找到位置: %1").arg(gc["formatted_address"].toString()));
 
                 reply->deleteLater();
                 return;  // 必须在成功时 return
@@ -245,6 +323,7 @@ void MainWindow::onGeocodeReply(QNetworkReply *reply)
     reply->deleteLater();
 }
 
+// 其余方法保持不变...
 double MainWindow::calculateStraightDistance(double lng1, double lat1, double lng2, double lat2)
 {
     // 将角度转换为弧度
@@ -255,7 +334,7 @@ double MainWindow::calculateStraightDistance(double lng1, double lat1, double ln
 
     // 使用Haversine公式计算距离
     double s = 2 * asin(sqrt(pow(sin(a/2), 2) +
-                   cos(radLat1) * cos(radLat2) * pow(sin(b/2), 2)));
+                             cos(radLat1) * cos(radLat2) * pow(sin(b/2), 2)));
     s = s * EARTH_RADIUS;
 
     return qAbs(s);  // 返回绝对值，距离不能为负
@@ -269,23 +348,23 @@ void MainWindow::centerMap(double lng, double lat, const QString &title, const Q
     else if (type == "waypoint") color = "orange";
 
     QString script = QString(
-        "setTimeout(function() {"
-        "   try {"
-        "       if (typeof map !== 'undefined') {"
-        "           map.setCenter([%1, %2]);"
-        "           map.setZoom(15);"
-        "           if (typeof clearMarkers === 'function') {"
-        "               clearMarkers();"
-        "           }"
-        "           if (typeof addMarker === 'function') {"
-        "               addMarker(%1, %2, '%3', '%4');"
-        "           }"
-        "       }"
-        "   } catch(e) {"
-        "       console.error('地图操作错误:', e);"
-        "   }"
-        "}, 200);"
-    ).arg(lng).arg(lat).arg(title).arg(color);
+                         "setTimeout(function() {"
+                         "   try {"
+                         "       if (typeof map !== 'undefined') {"
+                         "           map.setCenter([%1, %2]);"
+                         "           map.setZoom(15);"
+                         "           if (typeof clearMarkers === 'function') {"
+                         "               clearMarkers();"
+                         "           }"
+                         "           if (typeof addMarker === 'function') {"
+                         "               addMarker(%1, %2, '%3', '%4');"
+                         "           }"
+                         "       }"
+                         "   } catch(e) {"
+                         "       console.error('地图操作错误:', e);"
+                         "   }"
+                         "}, 200);"
+                         ).arg(lng).arg(lat).arg(title).arg(color);
 
     executeJavaScript(script);
 }
@@ -313,17 +392,9 @@ void MainWindow::onMapLoadFinished(bool ok)
     }
 }
 
-void MainWindow::addWaypointToList(const QString &waypoint)
-{
-    waypoints.append(waypoint);
-    if (waypointList) {
-        waypointList->addItem(waypoint);
-    }
-    qDebug() << "添加途径点:" << waypoint << "当前数量:" << waypoints.size();
-}
-
 QString MainWindow::generateMapHTML()
 {
+    // 保持不变...
     QString html = QString(R"(
         <!DOCTYPE html>
         <html lang="zh-CN">
@@ -518,13 +589,13 @@ void MainWindow::onCalculateShortestPath()
             double distance = calculateStraightDistance(
                 coord1.first, coord1.second,
                 coord2.first, coord2.second
-            );
+                );
 
             distanceMatrix[i][j] = distance;
             distanceMatrix[j][i] = distance;
 
             qDebug() << QString("距离 %1 -> %2: %3 公里")
-                        .arg(allPoints[i]).arg(allPoints[j]).arg(distance, 0, 'f', 2);
+                            .arg(allPoints[i]).arg(allPoints[j]).arg(distance, 0, 'f', 2);
         }
     }
 

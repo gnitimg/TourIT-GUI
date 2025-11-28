@@ -21,6 +21,9 @@
 #include <QUrl>
 #include <QTimer>
 #include <QInputDialog>
+#include <QFileDialog>
+#include <QFile>
+#include <QTextStream>
 
 class PathCalculator;
 
@@ -40,6 +43,7 @@ private slots:
     void onCalculateShortestPath();
     void displayRoute(const QString &resultPath);
     void onMapLoadFinished(bool ok);
+    void onImportFromFile();  // 新增：导入文件
 
 private:
     void setupUI();
@@ -50,6 +54,7 @@ private:
     void centerMap(double lng, double lat, const QString &title, const QString &type);
     void executeJavaScript(const QString &script);
     double calculateStraightDistance(double lng1, double lat1, double lng2, double lat2);
+    void importAddressesFromFile(const QString &fileName);  // 新增：从文件导入地址
 
     // UI 组件
     QWebEngineView *mapView;
@@ -59,6 +64,7 @@ private:
     QPushButton *confirmStartEndBtn;
     QPushButton *confirmWaypointBtn;
     QPushButton *finishBtn;
+    QPushButton *importFileBtn;  // 新增：导入文件按钮
     QListWidget *waypointList;
 
     // 网络和计算组件
