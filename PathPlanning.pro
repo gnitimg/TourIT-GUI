@@ -6,11 +6,13 @@ TARGET = PathPlanning
 TEMPLATE = app
 
 SOURCES += \
+    LocationPoint.cpp \
     main.cpp \
     MainWindow.cpp \
     PathCalculator.cpp
 
 HEADERS += \
+    LocationPoint.h \
     MainWindow.h \
     PathCalculator.h
 

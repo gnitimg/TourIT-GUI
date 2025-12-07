@@ -5,27 +5,39 @@
 #include <QVector>
 #include <QString>
 #include <QMap>
-#include <QPair>
 
 class PathCalculator : public QObject
 {
     Q_OBJECT
 
 public:
+    enum AlgorithmType {
+        NearestNeighbor,
+        Dijkstra
+    };
+
     explicit PathCalculator(QObject *parent = nullptr);
-    void calculateShortestPath(const QStringList &points);
-    void calculateShortestPathWithMatrix(const QStringList &points, const QVector<QVector<double>> &distanceMatrix);
+
+    void setAlgorithm(AlgorithmType algorithm);
+    void calculateShortestPathWithMatrix(const QStringList &points,
+                                         const QVector<QVector<double>> &distanceMatrix);
+
+    QStringList getAlgorithmNames() const;
+    QString getCurrentAlgorithmName() const;
 
 signals:
     void pathCalculated(const QString &path);
     void calculationError(const QString &error);
+    void algorithmChanged(const QString &algorithmName);
 
 private:
-    double getDistance(const QString &point1, const QString &point2);
-    QVector<int> dijkstra(const QVector<QVector<double>> &graph, int start, int end);
-    QVector<int> nearestNeighborTSP(const QVector<QVector<double>> &graph, int start, int end);
+    QVector<int> solveNearestNeighbor(const QVector<QVector<double>>& graph, int start, int end);
+    QVector<int> solveDijkstra(const QVector<QVector<double>>& graph, int start, int end);
+    QString buildResultPath(const QStringList &points,
+                            const QVector<int> &path,
+                            const QVector<QVector<double>> &distanceMatrix);
 
-    QMap<QString, QPair<double, double>> locationCache;
+    AlgorithmType currentAlgorithm;
 };
 
 #endif
